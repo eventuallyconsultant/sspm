@@ -2,7 +2,10 @@ use crate::app::{App, ProcessStatus};
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{
+    Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState,
+};
 use ratatui::Frame;
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -59,6 +62,14 @@ pub fn draw(f: &mut Frame, app: &App) {
     list_state.select(Some(app.selected));
     f.render_stateful_widget(list, chunks[0], &mut list_state);
 
+    // Scrollbar for process list
+    if app.processes.len() > 1 {
+        let mut scrollbar_state = ScrollbarState::new(app.processes.len().saturating_sub(1))
+            .position(app.selected);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+        f.render_stateful_widget(scrollbar, chunks[0], &mut scrollbar_state);
+    }
+
     // Right pane: output of selected process
     let (title, output_lines) = if let Some(key) = app.selected_key() {
         let name = app
@@ -85,16 +96,19 @@ pub fn draw(f: &mut Frame, app: &App) {
     let output_height = chunks[1].height.saturating_sub(2) as usize; // minus borders
     let total = output_lines.len();
     let max_scroll = total.saturating_sub(output_height);
-    let scroll = app.log_scroll.min(max_scroll);
-    let skip = total.saturating_sub(output_height).saturating_sub(scroll);
-    let visible_lines: Vec<Line> = output_lines
-        .into_iter()
-        .skip(skip)
-        .take(output_height)
-        .collect();
+    let clamped_scroll = app.log_scroll.min(max_scroll);
+    let scroll_y = max_scroll.saturating_sub(clamped_scroll);
 
-    let output = Paragraph::new(visible_lines)
-        .block(Block::default().borders(Borders::ALL).title(title));
+    let output = Paragraph::new(output_lines)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .scroll((scroll_y as u16, 0));
 
     f.render_widget(output, chunks[1]);
+
+    // Scrollbar for log pane
+    if total > output_height {
+        let mut scrollbar_state = ScrollbarState::new(max_scroll).position(scroll_y);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+        f.render_stateful_widget(scrollbar, chunks[1], &mut scrollbar_state);
+    }
 }
