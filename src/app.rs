@@ -5,10 +5,18 @@ use tokio::sync::mpsc;
 
 const MAX_OUTPUT_LINES: usize = 1000;
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum ProcessStatus {
+    Stopped,
+    Running,
+    Failed,
+}
+
 pub struct ProcessEntry {
     pub key: String,
     pub def: ProcessDef,
     pub checked: bool,
+    pub status: ProcessStatus,
     pub handle: Option<ProcessHandle>,
 }
 
@@ -39,6 +47,7 @@ impl App {
                 key: key.clone(),
                 def,
                 checked,
+                status: ProcessStatus::Stopped,
                 handle: None,
             });
         }
@@ -53,26 +62,38 @@ impl App {
         })
     }
 
+    fn start_process(&mut self, idx: usize) {
+        let entry = &mut self.processes[idx];
+        match ProcessHandle::spawn(&entry.key, &entry.def.command, self.output_tx.clone()) {
+            Ok(handle) => {
+                entry.handle = Some(handle);
+                entry.status = ProcessStatus::Running;
+                self.output_buffers
+                    .entry(entry.key.clone())
+                    .or_default()
+                    .push_back(format!("--- Started: {} ---", entry.def.command));
+            }
+            Err(e) => {
+                entry.status = ProcessStatus::Failed;
+                self.output_buffers
+                    .entry(entry.key.clone())
+                    .or_default()
+                    .push_back(format!("--- Failed to start: {} ---", e));
+            }
+        }
+    }
+
     /// Start all processes that are checked but not running.
     pub fn start_checked(&mut self) {
-        for entry in &mut self.processes {
-            if entry.checked && entry.handle.is_none() {
-                match ProcessHandle::spawn(&entry.key, &entry.def.command, self.output_tx.clone()) {
-                    Ok(handle) => {
-                        entry.handle = Some(handle);
-                        self.output_buffers
-                            .entry(entry.key.clone())
-                            .or_default()
-                            .push_back(format!("--- Started: {} ---", entry.def.command));
-                    }
-                    Err(e) => {
-                        self.output_buffers
-                            .entry(entry.key.clone())
-                            .or_default()
-                            .push_back(format!("--- Failed to start: {} ---", e));
-                    }
-                }
-            }
+        let indices: Vec<usize> = self
+            .processes
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.checked && e.handle.is_none())
+            .map(|(i, _)| i)
+            .collect();
+        for idx in indices {
+            self.start_process(idx);
         }
     }
 
@@ -81,35 +102,28 @@ impl App {
         if self.processes.is_empty() {
             return;
         }
-        let entry = &mut self.processes[self.selected];
-        entry.checked = !entry.checked;
 
-        if entry.checked {
-            // Start the process
-            match ProcessHandle::spawn(&entry.key, &entry.def.command, self.output_tx.clone()) {
-                Ok(handle) => {
-                    entry.handle = Some(handle);
-                    self.output_buffers
-                        .entry(entry.key.clone())
-                        .or_default()
-                        .push_back(format!("--- Started: {} ---", entry.def.command));
-                }
-                Err(e) => {
-                    self.output_buffers
-                        .entry(entry.key.clone())
-                        .or_default()
-                        .push_back(format!("--- Failed to start: {} ---", e));
-                }
-            }
-        } else {
-            // Stop the process
+        let is_running = self.processes[self.selected].handle.is_some();
+
+        if is_running {
+            // Running → stop and uncheck
+            let entry = &mut self.processes[self.selected];
             if let Some(mut handle) = entry.handle.take() {
                 handle.stop().await;
-                self.output_buffers
-                    .entry(entry.key.clone())
-                    .or_default()
-                    .push_back("--- Stopped ---".to_string());
             }
+            entry.checked = false;
+            entry.status = ProcessStatus::Stopped;
+            self.output_buffers
+                .entry(entry.key.clone())
+                .or_default()
+                .push_back("--- Stopped ---".to_string());
+        } else if self.processes[self.selected].checked {
+            // Checked but dead (failed/exited) → restart
+            self.start_process(self.selected);
+        } else {
+            // Unchecked → check and start
+            self.processes[self.selected].checked = true;
+            self.start_process(self.selected);
         }
     }
 
@@ -125,13 +139,45 @@ impl App {
         }
     }
 
-    /// Drain any pending output lines into buffers.
+    /// Drain any pending output lines into buffers, and poll child exit status.
     pub fn drain_output(&mut self) {
         while let Ok(msg) = self.output_rx.try_recv() {
             let buf = self.output_buffers.entry(msg.process_key).or_default();
             buf.push_back(msg.line);
             while buf.len() > MAX_OUTPUT_LINES {
                 buf.pop_front();
+            }
+        }
+
+        // Poll running processes for exit
+        for entry in &mut self.processes {
+            if let Some(ref mut handle) = entry.handle {
+                match handle.try_wait() {
+                    Ok(Some(status)) => {
+                        let code = status.code();
+                        let success = status.success();
+                        entry.handle = None;
+                        if success {
+                            entry.status = ProcessStatus::Stopped;
+                            self.output_buffers
+                                .entry(entry.key.clone())
+                                .or_default()
+                                .push_back("--- Exited (0) ---".to_string());
+                        } else {
+                            entry.status = ProcessStatus::Failed;
+                            self.output_buffers
+                                .entry(entry.key.clone())
+                                .or_default()
+                                .push_back(format!(
+                                    "--- Failed (exit {}) ---",
+                                    code.map(|c| c.to_string())
+                                        .unwrap_or_else(|| "signal".to_string())
+                                ));
+                        }
+                    }
+                    Ok(None) => {} // still running
+                    Err(_) => {}
+                }
             }
         }
     }

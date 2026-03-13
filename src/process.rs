@@ -63,6 +63,10 @@ impl ProcessHandle {
         Ok(Self { child })
     }
 
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+
     pub async fn stop(&mut self) {
         let _ = self.child.kill().await;
     }

@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, ProcessStatus};
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -16,14 +16,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         .processes
         .iter()
         .map(|entry| {
-            let checkbox = if entry.checked { "[x]" } else { "[ ]" };
-            let running_indicator = if entry.handle.is_some() {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default().fg(Color::DarkGray)
+            let (checkbox, style) = match entry.status {
+                ProcessStatus::Running => ("[x]", Style::default().fg(Color::Green)),
+                ProcessStatus::Failed => ("[-]", Style::default().fg(Color::Red)),
+                ProcessStatus::Stopped => ("[ ]", Style::default().fg(Color::DarkGray)),
             };
             ListItem::new(Line::from(vec![
-                Span::styled(format!(" {} ", checkbox), running_indicator),
+                Span::styled(format!(" {} ", checkbox), style),
                 Span::raw(&entry.def.name),
             ]))
         })
