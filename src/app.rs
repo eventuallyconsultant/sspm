@@ -139,6 +139,15 @@ impl App {
     self.log_scroll = self.log_scroll.saturating_sub(3);
   }
 
+  pub fn clear_selected_output(&mut self) {
+    if let Some(key) = self.selected_key().map(str::to_owned) {
+      if let Some(buf) = self.output_buffers.get_mut(&key) {
+        buf.clear();
+      }
+      self.log_scroll = 0;
+    }
+  }
+
   /// Drain any pending output lines into buffers, and poll child exit status.
   pub fn drain_output(&mut self) {
     while let Ok(msg) = self.output_rx.try_recv() {

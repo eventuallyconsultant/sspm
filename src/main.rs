@@ -77,6 +77,9 @@ async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, ap
           (KeyCode::Char('f'), _) => {
             app.frozen = !app.frozen;
           }
+          (KeyCode::Char('c'), _) => {
+            app.clear_selected_output();
+          }
           _ => {}
         },
         Event::Mouse(mouse) => match mouse.kind {
