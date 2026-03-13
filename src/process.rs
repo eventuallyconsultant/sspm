@@ -5,7 +5,6 @@ use tokio::sync::mpsc;
 
 pub struct ProcessHandle {
     child: Child,
-    _kill_on_drop: bool,
 }
 
 /// Message sent from a process reader task to the main app.
@@ -61,30 +60,10 @@ impl ProcessHandle {
             });
         }
 
-        Ok(Self {
-            child,
-            _kill_on_drop: true,
-        })
+        Ok(Self { child })
     }
 
-    /// Send SIGTERM, wait briefly, then SIGKILL if still alive.
     pub async fn stop(&mut self) {
-        // Try SIGTERM first
-        let pid = self.child.id();
-        if let Some(pid) = pid {
-            unsafe {
-                libc::kill(pid as i32, libc::SIGTERM);
-            }
-        }
-
-        // Give it 2 seconds to exit gracefully
-        let timeout = tokio::time::sleep(std::time::Duration::from_secs(2));
-        tokio::select! {
-            _ = self.child.wait() => {},
-            _ = timeout => {
-                // Force kill
-                let _ = self.child.kill().await;
-            }
-        }
+        let _ = self.child.kill().await;
     }
 }

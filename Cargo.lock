@@ -593,7 +593,6 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
- "libc",
  "ratatui",
  "serde",
  "tokio",
