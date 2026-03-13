@@ -1,0 +1,16 @@
+[profiles]
+default = ["server", "front"]
+backend = ["server"]
+none = []
+
+[processes.server]
+name = "Web server"
+command = "echo 'Starting server on :3000...' && echo 'Listening for connections' && while true; do echo \"$(date) - GET /api/health 200 OK\"; sleep 2; done"
+
+[processes.front]
+name = "Frontend"
+command = "echo 'Tailwind CSS watcher started' && while true; do echo \"$(date) - Rebuilding styles...\"; sleep 3; done"
+
+[processes.db]
+name = "Database"
+command = "echo 'PostgreSQL starting...' && echo 'Ready to accept connections on port 5432' && while true; do echo \"$(date) - checkpoint complete\"; sleep 5; done"
