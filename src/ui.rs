@@ -11,7 +11,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(f.area());
 
-    // Left pane: process list
+    // Left pane: process list (multi-line items)
     let items: Vec<ListItem> = app
         .processes
         .iter()
@@ -21,10 +21,29 @@ pub fn draw(f: &mut Frame, app: &App) {
                 ProcessStatus::Failed => ("[-]", Style::default().fg(Color::Red)),
                 ProcessStatus::Stopped => ("[ ]", Style::default().fg(Color::DarkGray)),
             };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!(" {} ", checkbox), style),
-                Span::raw(&entry.def.name),
-            ]))
+
+            let mut lines = vec![
+                // Line 1: checkbox + name
+                Line::from(vec![
+                    Span::styled(format!(" {} ", checkbox), style),
+                    Span::raw(&entry.def.name),
+                ]),
+                // Line 2: command (dimmed)
+                Line::from(Span::styled(
+                    format!("     {}", &entry.def.command),
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            // Line 3: last exit code (red, only when non-zero)
+            if let Some(code) = entry.last_exit_code {
+                lines.push(Line::from(Span::styled(
+                    format!("     last exit code: {}", code),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+
+            ListItem::new(lines)
         })
         .collect();
 
@@ -62,10 +81,17 @@ pub fn draw(f: &mut Frame, app: &App) {
         (" Output ".to_string(), vec![])
     };
 
-    // Auto-scroll: show last N lines that fit
+    // Scrollable log: log_scroll=0 means tail (auto-follow)
     let output_height = chunks[1].height.saturating_sub(2) as usize; // minus borders
-    let skip = output_lines.len().saturating_sub(output_height);
-    let visible_lines: Vec<Line> = output_lines.into_iter().skip(skip).collect();
+    let total = output_lines.len();
+    let max_scroll = total.saturating_sub(output_height);
+    let scroll = app.log_scroll.min(max_scroll);
+    let skip = total.saturating_sub(output_height).saturating_sub(scroll);
+    let visible_lines: Vec<Line> = output_lines
+        .into_iter()
+        .skip(skip)
+        .take(output_height)
+        .collect();
 
     let output = Paragraph::new(visible_lines)
         .block(Block::default().borders(Borders::ALL).title(title));

@@ -5,7 +5,9 @@ mod ui;
 
 use app::App;
 use clap::Parser;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -36,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
+    stdout().execute(EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
 
@@ -43,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Cleanup: stop all processes, restore terminal
     app.stop_all().await;
+    stdout().execute(DisableMouseCapture)?;
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
 
@@ -62,8 +66,8 @@ async fn run_loop(
 
         // Poll for events with a short timeout (~16ms for ~60fps)
         if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                match (key.code, key.modifiers) {
+            match event::read()? {
+                Event::Key(key) => match (key.code, key.modifiers) {
                     (KeyCode::Char('q'), _) => {
                         app.should_quit = true;
                     }
@@ -80,7 +84,13 @@ async fn run_loop(
                         app.toggle_selected().await;
                     }
                     _ => {}
-                }
+                },
+                Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::ScrollUp => app.scroll_logs_up(),
+                    MouseEventKind::ScrollDown => app.scroll_logs_down(),
+                    _ => {}
+                },
+                _ => {}
             }
         }
 

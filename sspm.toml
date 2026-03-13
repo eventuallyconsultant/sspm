@@ -18,3 +18,7 @@ command = "echo 'PostgreSQL starting...' && echo 'Ready to accept connections on
 [processes.fail]
 name = "This will fail"
 command = "exit 42"
+
+[processes.short]
+name = "This will exit immediately"
+command = "echo plop"

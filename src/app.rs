@@ -18,6 +18,7 @@ pub struct ProcessEntry {
     pub checked: bool,
     pub status: ProcessStatus,
     pub handle: Option<ProcessHandle>,
+    pub last_exit_code: Option<i32>,
 }
 
 pub struct App {
@@ -27,6 +28,7 @@ pub struct App {
     pub output_tx: mpsc::UnboundedSender<OutputLine>,
     pub output_rx: mpsc::UnboundedReceiver<OutputLine>,
     pub should_quit: bool,
+    pub log_scroll: usize,
 }
 
 impl App {
@@ -49,6 +51,7 @@ impl App {
                 checked,
                 status: ProcessStatus::Stopped,
                 handle: None,
+                last_exit_code: None,
             });
         }
 
@@ -59,11 +62,13 @@ impl App {
             output_tx,
             output_rx,
             should_quit: false,
+            log_scroll: 0,
         })
     }
 
     fn start_process(&mut self, idx: usize) {
         let entry = &mut self.processes[idx];
+        entry.last_exit_code = None;
         match ProcessHandle::spawn(&entry.key, &entry.def.command, self.output_tx.clone()) {
             Ok(handle) => {
                 entry.handle = Some(handle);
@@ -130,13 +135,23 @@ impl App {
     pub fn move_up(&mut self) {
         if self.selected > 0 {
             self.selected -= 1;
+            self.log_scroll = 0;
         }
     }
 
     pub fn move_down(&mut self) {
         if self.selected + 1 < self.processes.len() {
             self.selected += 1;
+            self.log_scroll = 0;
         }
+    }
+
+    pub fn scroll_logs_up(&mut self) {
+        self.log_scroll = self.log_scroll.saturating_add(3);
+    }
+
+    pub fn scroll_logs_down(&mut self) {
+        self.log_scroll = self.log_scroll.saturating_sub(3);
     }
 
     /// Drain any pending output lines into buffers, and poll child exit status.
@@ -159,12 +174,14 @@ impl App {
                         entry.handle = None;
                         if success {
                             entry.status = ProcessStatus::Stopped;
+                            entry.last_exit_code = None;
                             self.output_buffers
                                 .entry(entry.key.clone())
                                 .or_default()
                                 .push_back("--- Exited (0) ---".to_string());
                         } else {
                             entry.status = ProcessStatus::Failed;
+                            entry.last_exit_code = code;
                             self.output_buffers
                                 .entry(entry.key.clone())
                                 .or_default()
