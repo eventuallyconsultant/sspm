@@ -1,3 +1,4 @@
+use ansi_to_tui::IntoText as _;
 use crate::app::{App, ProcessStatus};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -59,9 +60,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     let lines = app
       .output_buffers
       .get(key)
-      .map(|buf| buf.iter().map(|l| Line::from(l.as_str())).collect::<Vec<_>>())
+      .map(|buf| {
+        let raw = buf.iter().map(|l| l.as_str()).collect::<Vec<_>>().join("\n");
+        raw.into_text().map(|t| t.lines).unwrap_or_default()
+      })
       .unwrap_or_default();
-    (format!(" Output ({}) ", name), lines)
+    (format!(" Output ({}) — Shift+drag to select ", name), lines)
   } else {
     (" Output ".to_string(), vec![])
   };

@@ -12,3 +12,4 @@ tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 indexmap = { version = "2.13.0", features = ["serde"] }
+ansi-to-tui = "8.0"

@@ -22,3 +22,7 @@ command = "exit 42"
 [processes.short]
 name = "This will exit immediately"
 command = "echo plop"
+
+[processes.rainbow]
+name = "Rainbow"
+command = "while true; do echo -e '\\033[31m[ERROR]\\033[0m Something broke | \\033[32m[OK]\\033[0m All good | \\033[33m[WARN]\\033[0m Watch out | \\033[34m[INFO]\\033[0m Just FYI | \\033[35m[DEBUG]\\033[0m Verbose | \\033[36m[TRACE]\\033[0m Deep dive'; sleep 1; done"
