@@ -29,6 +29,7 @@ pub struct App {
   pub output_rx: mpsc::UnboundedReceiver<OutputLine>,
   pub should_quit: bool,
   pub log_scroll: usize,
+  pub frozen: bool,
 }
 
 impl App {
@@ -48,7 +49,7 @@ impl App {
       processes.push(ProcessEntry { key: key.clone(), def, checked, status: ProcessStatus::Stopped, handle: None, last_exit_code: None });
     }
 
-    Ok(Self { processes, selected: 0, output_buffers, output_tx, output_rx, should_quit: false, log_scroll: 0 })
+    Ok(Self { processes, selected: 0, output_buffers, output_tx, output_rx, should_quit: false, log_scroll: 0, frozen: false })
   }
 
   fn start_process(&mut self, idx: usize) {

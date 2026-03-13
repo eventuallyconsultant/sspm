@@ -47,11 +47,13 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &mut App) -> anyhow::Result<()> {
   loop {
-    // Drain output from child processes
-    app.drain_output();
+    if !app.frozen {
+      // Drain output from child processes
+      app.drain_output();
 
-    // Draw UI
-    terminal.draw(|f| ui::draw(f, app))?;
+      // Draw UI
+      terminal.draw(|f| ui::draw(f, app))?;
+    }
 
     // Poll for events with a short timeout (~16ms for ~60fps)
     if event::poll(Duration::from_millis(16))? {
@@ -71,6 +73,9 @@ async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, ap
           }
           (KeyCode::Char(' ') | KeyCode::Enter, _) => {
             app.toggle_selected().await;
+          }
+          (KeyCode::Char('f'), _) => {
+            app.frozen = !app.frozen;
           }
           _ => {}
         },

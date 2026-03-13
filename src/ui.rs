@@ -65,7 +65,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         raw.into_text().map(|t| t.lines).unwrap_or_default()
       })
       .unwrap_or_default();
-    (format!(" Output ({}) — Shift+drag to select ", name), lines)
+    let freeze_hint = if app.frozen { " [FROZEN] " } else { " (f to freeze — Shift+drag to select) " };
+    (format!(" Output ({}) —{}", name, freeze_hint), lines)
   } else {
     (" Output ".to_string(), vec![])
   };
