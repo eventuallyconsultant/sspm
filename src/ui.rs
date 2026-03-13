@@ -24,7 +24,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
       let mut lines = vec![
         // Line 1: checkbox + name
-        Line::from(vec![Span::styled(format!(" {} ", checkbox), style), Span::raw(&entry.def.name)]),
+        Line::from(vec![Span::styled(format!(" {} ", checkbox), style), Span::raw(entry.def.display_name(&entry.key))]),
         // Line 2: command (dimmed)
         Line::from(Span::styled(format!("     {}", &entry.def.command), Style::default().fg(Color::DarkGray))),
       ];
@@ -55,7 +55,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
   // Right pane: output of selected process
   let (title, output_lines) = if let Some(key) = app.selected_key() {
-    let name = app.processes.iter().find(|e| e.key == key).map(|e| e.def.name.as_str()).unwrap_or(key);
+    let name = app.processes.iter().find(|e| e.key == key).map(|e| e.def.display_name(&e.key)).unwrap_or(key);
     let lines = app
       .output_buffers
       .get(key)

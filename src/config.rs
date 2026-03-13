@@ -1,16 +1,25 @@
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+  #[serde(default)]
   pub profiles: HashMap<String, Vec<String>>,
-  pub processes: HashMap<String, ProcessDef>,
+  #[serde(default)]
+  pub processes: IndexMap<String, ProcessDef>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProcessDef {
-  pub name: String,
+  pub name: Option<String>,
   pub command: String,
+}
+
+impl ProcessDef {
+  pub fn display_name<'a>(&'a self, key: &'a str) -> &'a str {
+    self.name.as_deref().unwrap_or(key)
+  }
 }
 
 impl Config {
@@ -21,17 +30,11 @@ impl Config {
   }
 
   pub fn profile_processes(&self, profile: &str) -> anyhow::Result<Vec<String>> {
-    self
-      .profiles
-      .get(profile)
-      .cloned()
-      .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found in config", profile))
+    Ok(self.profiles.get(profile).cloned().unwrap_or_default())
   }
 
-  /// Returns all process keys in a stable order (sorted alphabetically).
+  /// Returns all process keys in declaration order.
   pub fn ordered_keys(&self) -> Vec<String> {
-    let mut keys: Vec<String> = self.processes.keys().cloned().collect();
-    keys.sort();
-    keys
+    self.processes.keys().cloned().collect()
   }
 }
