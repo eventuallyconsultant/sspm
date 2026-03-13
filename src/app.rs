@@ -1,5 +1,5 @@
 use crate::config::{Config, ProcessDef};
-use crate::process::{OutputLine, ProcessHandle};
+use crate::process::{OutputLine, ProcessHandle, is_group_alive};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc;
 
@@ -9,6 +9,7 @@ const MAX_OUTPUT_LINES: usize = 1000;
 pub enum ProcessStatus {
   Stopped,
   Running,
+  Stopping,
   Failed,
 }
 
@@ -18,6 +19,7 @@ pub struct ProcessEntry {
   pub checked: bool,
   pub status: ProcessStatus,
   pub handle: Option<ProcessHandle>,
+  pub stopping_pid: Option<u32>,
   pub last_exit_code: Option<i32>,
 }
 
@@ -46,7 +48,7 @@ impl App {
       let def = config.processes[key].clone();
       let checked = active.contains(key);
       output_buffers.insert(key.clone(), VecDeque::new());
-      processes.push(ProcessEntry { key: key.clone(), def, checked, status: ProcessStatus::Stopped, handle: None, last_exit_code: None });
+      processes.push(ProcessEntry { key: key.clone(), def, checked, status: ProcessStatus::Stopped, handle: None, stopping_pid: None, last_exit_code: None });
     }
 
     Ok(Self { processes, selected: 0, output_buffers, output_tx, output_rx, should_quit: false, log_scroll: 0, frozen: false })
@@ -91,29 +93,38 @@ impl App {
   }
 
   /// Toggle the currently selected process.
-  pub async fn toggle_selected(&mut self) {
+  pub fn toggle_selected(&mut self) {
     if self.processes.is_empty() {
       return;
     }
 
-    let is_running = self.processes[self.selected].handle.is_some();
-
-    if is_running {
-      // Running → stop and uncheck
-      let entry = &mut self.processes[self.selected];
-      if let Some(mut handle) = entry.handle.take() {
-        handle.stop().await;
+    let idx = self.selected;
+    match self.processes[idx].status {
+      ProcessStatus::Running => {
+        // Running → send SIGTERM, mark as Stopping (checkbox stays until exit)
+        if let Some(ref handle) = self.processes[idx].handle {
+          handle.signal_term();
+        }
+        self.processes[idx].status = ProcessStatus::Stopping;
+        let key = self.processes[idx].key.clone();
+        self.output_buffers.entry(key).or_default().push_back("--- Stopping... ---".to_string());
       }
-      entry.checked = false;
-      entry.status = ProcessStatus::Stopped;
-      self.output_buffers.entry(entry.key.clone()).or_default().push_back("--- Stopped ---".to_string());
-    } else if self.processes[self.selected].checked {
-      // Checked but dead (failed/exited) → restart
-      self.start_process(self.selected);
-    } else {
-      // Unchecked → check and start
-      self.processes[self.selected].checked = true;
-      self.start_process(self.selected);
+      ProcessStatus::Stopping => {
+        // Stopping → force kill (handle or orphaned group)
+        if let Some(ref handle) = self.processes[idx].handle {
+          handle.force_kill();
+        } else if let Some(pid) = self.processes[idx].stopping_pid {
+          unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+        }
+        let key = self.processes[idx].key.clone();
+        self.output_buffers.entry(key).or_default().push_back("--- Force killing... ---".to_string());
+      }
+      ProcessStatus::Stopped | ProcessStatus::Failed => {
+        if !self.processes[idx].checked {
+          self.processes[idx].checked = true;
+        }
+        self.start_process(idx);
+      }
     }
   }
 
@@ -163,10 +174,16 @@ impl App {
       if let Some(ref mut handle) = entry.handle {
         match handle.try_wait() {
           Ok(Some(status)) => {
+            let was_stopping = entry.status == ProcessStatus::Stopping;
+            let pid = handle.pid();
             let code = status.code();
             let success = status.success();
             entry.handle = None;
-            if success {
+            if was_stopping {
+              // Shell exited, but children in the group may still be alive
+              entry.stopping_pid = Some(pid);
+              // Don't transition yet — the group-alive check below will handle it
+            } else if success {
               entry.status = ProcessStatus::Stopped;
               entry.last_exit_code = None;
               self
@@ -188,6 +205,17 @@ impl App {
           Err(_) => {}
         }
       }
+
+      // Check if the process group is fully dead for Stopping processes
+      if let Some(pid) = entry.stopping_pid {
+        if !is_group_alive(pid) {
+          entry.stopping_pid = None;
+          entry.status = ProcessStatus::Stopped;
+          entry.checked = false;
+          entry.last_exit_code = None;
+          self.output_buffers.entry(entry.key.clone()).or_default().push_back("--- Stopped ---".to_string());
+        }
+      }
     }
   }
 
@@ -196,12 +224,32 @@ impl App {
     self.processes.get(self.selected).map(|e| e.key.as_str())
   }
 
-  /// Stop all running processes.
-  pub async fn stop_all(&mut self) {
+  /// Send SIGTERM to all running processes and mark them as Stopping.
+  pub fn request_quit(&mut self) {
+    self.should_quit = true;
     for entry in &mut self.processes {
-      if let Some(mut handle) = entry.handle.take() {
-        handle.stop().await;
+      if entry.status == ProcessStatus::Running {
+        if let Some(ref handle) = entry.handle {
+          handle.signal_term();
+        }
+        entry.status = ProcessStatus::Stopping;
       }
     }
+  }
+
+  /// Force-kill all remaining processes.
+  pub fn force_quit(&mut self) {
+    for entry in &mut self.processes {
+      if let Some(ref handle) = entry.handle {
+        handle.force_kill();
+      } else if let Some(pid) = entry.stopping_pid {
+        unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+      }
+    }
+  }
+
+  /// True when no process has a handle and no group is still alive.
+  pub fn all_stopped(&self) -> bool {
+    self.processes.iter().all(|e| e.handle.is_none() && e.stopping_pid.is_none())
   }
 }

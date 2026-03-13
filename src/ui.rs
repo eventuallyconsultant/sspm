@@ -19,6 +19,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     .map(|entry| {
       let (checkbox, style) = match entry.status {
         ProcessStatus::Running => ("[x]", Style::default().fg(Color::Green)),
+        ProcessStatus::Stopping => ("[.]", Style::default().fg(Color::Yellow)),
         ProcessStatus::Failed => ("[-]", Style::default().fg(Color::Red)),
         ProcessStatus::Stopped => ("[ ]", Style::default().fg(Color::DarkGray)),
       };
@@ -39,8 +40,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     })
     .collect();
 
+  let proc_title = if app.should_quit { " Processes — Quitting... " } else { " Processes " };
   let list = List::new(items)
-    .block(Block::default().borders(Borders::ALL).title(" Processes "))
+    .block(Block::default().borders(Borders::ALL).title(proc_title))
     .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
 
   let mut list_state = ListState::default();

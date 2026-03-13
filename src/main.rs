@@ -36,8 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
   let result = run_loop(&mut terminal, &mut app).await;
 
-  // Cleanup: stop all processes, restore terminal
-  app.stop_all().await;
+  // Restore terminal
   stdout().execute(DisableMouseCapture)?;
   disable_raw_mode()?;
   stdout().execute(LeaveAlternateScreen)?;
@@ -55,15 +54,17 @@ async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, ap
       terminal.draw(|f| ui::draw(f, app))?;
     }
 
+    // Exit once quit requested and all processes have exited
+    if app.should_quit && app.all_stopped() {
+      return Ok(());
+    }
+
     // Poll for events with a short timeout (~16ms for ~60fps)
     if event::poll(Duration::from_millis(16))? {
       match event::read()? {
-        Event::Key(key) => match (key.code, key.modifiers) {
-          (KeyCode::Char('q'), _) => {
-            app.should_quit = true;
-          }
-          (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-            app.should_quit = true;
+        Event::Key(key) if !app.should_quit => match (key.code, key.modifiers) {
+          (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            app.request_quit();
           }
           (KeyCode::Up | KeyCode::Char('k'), _) => {
             app.move_up();
@@ -72,13 +73,20 @@ async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, ap
             app.move_down();
           }
           (KeyCode::Char(' ') | KeyCode::Enter, _) => {
-            app.toggle_selected().await;
+            app.toggle_selected();
           }
           (KeyCode::Char('f'), _) => {
             app.frozen = !app.frozen;
           }
           (KeyCode::Char('c'), _) => {
             app.clear_selected_output();
+          }
+          _ => {}
+        },
+        // During quit: second q/Ctrl+C force-kills all
+        Event::Key(key) if app.should_quit => match (key.code, key.modifiers) {
+          (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            app.force_quit();
           }
           _ => {}
         },
@@ -89,10 +97,6 @@ async fn run_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, ap
         },
         _ => {}
       }
-    }
-
-    if app.should_quit {
-      return Ok(());
     }
   }
 }
